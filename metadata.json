@@ -1,0 +1,6 @@
+{
+  "name": "MirrorMind",
+  "description": "AI-Powered Student Digital Twin and Personalized Learning Platform with StudentMind Studio.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
