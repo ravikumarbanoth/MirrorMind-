@@ -14,7 +14,10 @@ import {
   checkInDailyRitual,
   submitEveningReflection,
   logConversation,
-  resetStudentMemoryState
+  resetStudentMemoryState,
+  UserRepository,
+  hashPassword,
+  comparePassword
 } from "./src/db/memory_graph_db";
 
 dotenv.config();
@@ -414,6 +417,506 @@ const dbState: AppDatabase = {
 };
 
 // ------------------- API CONTROLLERS -------------------
+
+// ------------------- API CONTROLLERS -------------------
+
+const userRepo = new UserRepository();
+
+// --- PRODUCTION MULTI-USER AUTHENTICATION ENDPOINTS (PART 1, 2, 4, 8) ---
+
+// Token helper for requests
+function extractToken(req: express.Request): string | null {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    return authHeader.substring(7);
+  }
+  const queryToken = req.query.token;
+  if (queryToken && typeof queryToken === "string") {
+    return queryToken;
+  }
+  return null;
+}
+
+// REGISTER NEW STUDENT (PART 1 & 4)
+app.post("/api/auth/register", (req, res) => {
+  const { fullName, email, password, confirmPassword, college, course, branch, semester, careerGoal } = req.body;
+
+  if (!fullName || !email || !password || !confirmPassword) {
+    return res.status(400).json({ error: "Please enter all required authentication fields" });
+  }
+
+  // Email format validation
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ error: "Invalid email format entered." });
+  }
+
+  // Password confirmation
+  if (password !== confirmPassword) {
+    return res.status(400).json({ error: "Passwords do not match." });
+  }
+
+  // Strong password requirements
+  const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{6,}$/;
+  if (!passwordRegex.test(password)) {
+    return res.status(400).json({ error: "Password must be at least 6 characters and contain both letters and numbers." });
+  }
+
+  try {
+    // Unique email check
+    const existingUser = userRepo.findByEmail(email);
+    if (existingUser) {
+      return res.status(400).json({ error: "An account with this email already exists." });
+    }
+
+    // Hash & Create User record
+    const user = userRepo.createUser({
+      email: email.toLowerCase(),
+      passwordHash: hashPassword(password),
+      avatarUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(fullName)}`,
+      authProvider: "local",
+      lastLogin: new Date().toISOString()
+    });
+
+    // Create Student Profile record
+    const profile = userRepo.createStudentProfile({
+      userId: user.userId,
+      fullName,
+      college: college || "MirrorMind Institute of AI & Technology",
+      course: course || "Bachelor of Technology (B.Tech)",
+      branch: branch || "Computer Science & AI",
+      semester: semester || "Semester 1",
+      careerGoal: careerGoal || "Software Architect",
+      currentIdentity: "Committed Engineering Student",
+      futureIdentity: careerGoal || "AI & Software Engineer"
+    });
+
+    // Create parallel StudentDNAProfile record in global memory database
+    const mainDb = loadMemoryDatabase();
+    const newDnaProfile: StudentDNAProfile = {
+      studentId: user.userId,
+      name: fullName,
+      email: email.toLowerCase(),
+      avatarUrl: user.avatarUrl,
+      department: branch || "Computer Science & AI",
+      semester: semester || "Semester 1",
+      academic: {
+        strengths: ["Critical Thinking", "Fast Learner"],
+        weaknesses: ["Public Presentation", "Time Management"],
+        currentGPA: 3.5,
+        gpaTrends: [{ semester: "Semester 1", gpa: 3.5 }],
+        internalMarks: [
+          { subject: "Introduction to AI & Coding", score: 85, max: 100 },
+          { subject: "Programming Fundamentals", score: 90, max: 100 }
+        ],
+        assignmentScores: [
+          { title: "Visual coding lab", subject: "Programming Fundamentals", score: 25, max: 25 }
+        ]
+      },
+      behavioral: {
+        attendancePercentage: 92.5,
+        punctualityScore: 88,
+        classParticipation: 86,
+        disciplineIncidents: 0,
+        lastActive: new Date().toISOString()
+      },
+      learning: {
+        visual: 60,
+        reading: 55,
+        practice: 70,
+        collaborative: 65
+      },
+      career: {
+        careerInterests: [careerGoal || "Software Architect", "Full Stack Developer"],
+        preferredDomains: ["Cloud Computing", "AI Application Prototyping"],
+        skillsMastered: ["HTML Core", "Logic Building"],
+        skillsInProgress: ["Python Fundamentals", "Database Storage"],
+        roadmapCompleted: 15
+      },
+      digital: {
+        learningActivityHours: 8,
+        contentEngagementScore: 72,
+        challengesCompletedCount: 1,
+        streakDays: 3
+      }
+    };
+    mainDb.students.push(newDnaProfile);
+
+    // Bootstrap default long-term memories for this brand new Student Twin Graph!
+    mainDb.twinMemories.push({
+      id: `tm-${Date.now()}-reg-auth`,
+      studentId: user.userId,
+      topic: "Core Aspirations",
+      text: `Enrolled under ${branch || "Computer Science"} with the career dream of becoming a ${careerGoal || "Software Architect"}. Current GPA benchmark set to 3.5.`,
+      date: "Today",
+      type: "automatic"
+    });
+
+    saveMemoryDatabase(mainDb);
+
+    // Create session
+    const session = userRepo.createSession(user.userId, req.headers["user-agent"] || "Web Browser Device", req.ip || "127.0.0.1");
+
+    // Also update server-session's currentUser
+    dbState.currentUser = {
+      id: user.userId,
+      name: fullName,
+      email: user.email,
+      role: UserRole.STUDENT,
+      studentId: user.userId
+    };
+
+    res.json({
+      success: true,
+      message: "Congratulations! Your persistent Digital Twin has been initialized.",
+      token: session.token,
+      user: { userId: user.userId, email: user.email, avatarUrl: user.avatarUrl },
+      profile,
+      studentRecord: newDnaProfile
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "An error occurred during account registration." });
+  }
+});
+
+// PASSWORD LOGIN (PART 1 & 4)
+app.post("/api/auth/login", (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: "Missing email or password" });
+  }
+
+  try {
+    const user = userRepo.findByEmail(email);
+    if (!user) {
+      return res.status(401).json({ error: "No account with this email address was found." });
+    }
+
+    if (user.status !== "Active") {
+      return res.status(403).json({ error: "This student account is currently inactive." });
+    }
+
+    // Validate password hashes
+    const isValid = comparePassword(password, user.passwordHash);
+    if (!isValid) {
+      return res.status(401).json({ error: "Incorrect password. Please try again." });
+    }
+
+    // Create session
+    const session = userRepo.createSession(user.userId, req.headers["user-agent"] || "Web Browser Device", req.ip || "127.0.0.1");
+    userRepo.updateLastLogin(user.userId);
+
+    const profile = userRepo.getStudentProfile(user.userId);
+    const mainDb = loadMemoryDatabase();
+    let studentRecord = mainDb.students.find(s => s.studentId === user.userId);
+
+    // Autocreate mock student if somehow they had active User but database student profile got wiped
+    if (!studentRecord && profile) {
+      studentRecord = {
+        studentId: user.userId,
+        name: profile.fullName,
+        email: user.email,
+        avatarUrl: user.avatarUrl,
+        department: profile.branch,
+        semester: profile.semester,
+        academic: { strengths: ["Research"], weaknesses: [], currentGPA: 3.5, gpaTrends: [], internalMarks: [], assignmentScores: [] },
+        behavioral: { attendancePercentage: 90, punctualityScore: 90, classParticipation: 90, disciplineIncidents: 0, lastActive: new Date().toISOString() },
+        learning: { visual: 50, reading: 50, practice: 50, collaborative: 50 },
+        career: { careerInterests: [profile.careerGoal], preferredDomains: [], skillsMastered: [], skillsInProgress: [], roadmapCompleted: 0 },
+        digital: { learningActivityHours: 0, contentEngagementScore: 100, challengesCompletedCount: 0, streakDays: 0 }
+      };
+      mainDb.students.push(studentRecord);
+      saveMemoryDatabase(mainDb);
+    }
+
+    // Update server-session's active currentUser
+    dbState.currentUser = {
+      id: user.userId,
+      name: profile?.fullName || "Student",
+      email: user.email,
+      role: UserRole.STUDENT,
+      studentId: user.userId
+    };
+
+    res.json({
+      success: true,
+      message: "Signed in successfully!",
+      token: session.token,
+      user: { userId: user.userId, email: user.email, avatarUrl: user.avatarUrl },
+      profile,
+      studentRecord
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "An error occurred during sign in." });
+  }
+});
+
+// CONTINUE WITH GOOGLE (PART 2)
+app.post("/api/auth/google", (req, res) => {
+  const { email, fullName, sub } = req.body;
+
+  if (!email || !fullName) {
+    return res.status(400).json({ error: "Google authentication payload missing email or name" });
+  }
+
+  try {
+    let user = userRepo.findByEmail(email);
+    let isNew = false;
+
+    if (!user) {
+      isNew = true;
+      // First-time signup with Google, auto-create account
+      user = userRepo.createUser({
+        email: email.toLowerCase(),
+        passwordHash: hashPassword(sub || "OAuth_Google_Auth_Secret_123"), // No raw text passwords stored!
+        avatarUrl: `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(fullName)}`,
+        authProvider: "google",
+        lastLogin: new Date().toISOString()
+      });
+
+      // Create profile
+      userRepo.createStudentProfile({
+        userId: user.userId,
+        fullName,
+        college: "Google Cloud Sandbox Institute",
+        course: "Bachelor of Technology (B.Tech)",
+        branch: "Artificial Intelligence & Automation",
+        semester: "Semester 5",
+        careerGoal: "Data Analyst / AI Specialist",
+        currentIdentity: "Adaptive Learner (Google Sync)",
+        futureIdentity: "Cloud Automation Architect"
+      });
+
+      // Create default detailed student mapping
+      const mainDb = loadMemoryDatabase();
+      const newDnaProfile: StudentDNAProfile = {
+        studentId: user.userId,
+        name: fullName,
+        email: email.toLowerCase(),
+        avatarUrl: user.avatarUrl,
+        department: "AI & Automation",
+        semester: "Semester 5",
+        academic: {
+          strengths: ["Cloud Integration", "REST Architectures", "Modern JS Frameworks"],
+          weaknesses: ["Discrete Mathematics", "Operating Systems"],
+          currentGPA: 3.62,
+          gpaTrends: [
+            { semester: "Semester 1", gpa: 3.2 },
+            { semester: "Semester 2", gpa: 3.4 },
+            { semester: "Semester 3", gpa: 3.5 },
+            { semester: "Semester 4", gpa: 3.62 }
+          ],
+          internalMarks: [
+            { subject: "Enterprise Infrastructure", score: 92, max: 100 },
+            { subject: "Advanced Prompting Engines", score: 81, max: 100 }
+          ],
+          assignmentScores: [
+            { title: "One-Click REST Deployment", subject: "Enterprise Infrastructure", score: 25, max: 25 }
+          ]
+        },
+        behavioral: {
+          attendancePercentage: 94.0,
+          punctualityScore: 92,
+          classParticipation: 95,
+          disciplineIncidents: 0,
+          lastActive: new Date().toISOString()
+        },
+        learning: {
+          visual: 70,
+          reading: 40,
+          practice: 85,
+          collaborative: 50
+        },
+        career: {
+          careerInterests: ["Data Analyst", "AI Automation specialist"],
+          preferredDomains: ["Cloud Analytics Solutions", "Prompt Optimization Pipelines"],
+          skillsMastered: ["SQL Querying", "Javascript Core", "REST Design"],
+          skillsInProgress: ["Python Advanced", "NoSQL Foundations"],
+          roadmapCompleted: 35
+        },
+        digital: {
+          learningActivityHours: 12,
+          contentEngagementScore: 84,
+          challengesCompletedCount: 2,
+          streakDays: 4
+        }
+      };
+      mainDb.students.push(newDnaProfile);
+
+      // Priming memory logs
+      mainDb.twinMemories.push({
+        id: `tm-${Date.now()}-google-reg`,
+        studentId: user.userId,
+        topic: "Google Auth Sync",
+        text: `Connected securely using Google One-Click Auth provider. Digital Twin identity maps to central OAuth framework.`,
+        date: "Today",
+        type: "automatic"
+      });
+
+      saveMemoryDatabase(mainDb);
+    }
+
+    // Create session
+    const session = userRepo.createSession(user.userId, req.headers["user-agent"] || "Web Browser Device (Google Sign)", req.ip || "127.0.0.1");
+    userRepo.updateLastLogin(user.userId);
+
+    const profile = userRepo.getStudentProfile(user.userId);
+    const mainDb = loadMemoryDatabase();
+    const studentRecord = mainDb.students.find(s => s.studentId === user.userId);
+
+    // Update server session profile
+    dbState.currentUser = {
+      id: user.userId,
+      name: profile?.fullName || fullName,
+      email: user.email,
+      role: UserRole.STUDENT,
+      studentId: user.userId
+    };
+
+    res.json({
+      success: true,
+      message: isNew ? "Account securely provisioned and synced using Google Workspace!" : "Successfully logged in via Google Workspace!",
+      token: session.token,
+      user: { userId: user.userId, email: user.email, avatarUrl: user.avatarUrl },
+      profile,
+      studentRecord
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Google authentication failed" });
+  }
+});
+
+// SESSION VERIFICATION ON LOAD (PART 1, 8, 9)
+app.get("/api/auth/session", (req, res) => {
+  const token = extractToken(req);
+
+  if (!token) {
+    return res.status(401).json({ error: "Unauthorized. Missing authentication token." });
+  }
+
+  try {
+    const session = userRepo.validateSession(token);
+    if (!session) {
+      return res.status(401).json({ error: "Session expired or invalid token." });
+    }
+
+    const user = userRepo.findById(session.userId);
+    if (!user) {
+      return res.status(404).json({ error: "Associated user record not found" });
+    }
+
+    const profile = userRepo.getStudentProfile(user.userId);
+    const mainDb = loadMemoryDatabase();
+    const studentRecord = mainDb.students.find(s => s.studentId === user.userId);
+
+    // Sync express session
+    dbState.currentUser = {
+      id: user.userId,
+      name: profile?.fullName || "Student",
+      email: user.email,
+      role: UserRole.STUDENT,
+      studentId: user.userId
+    };
+
+    res.json({
+      success: true,
+      user: { userId: user.userId, email: user.email, avatarUrl: user.avatarUrl },
+      profile,
+      studentRecord
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// LOGOUT ENDPOINT (PART 1)
+app.post("/api/auth/logout", (req, res) => {
+  const token = extractToken(req);
+  if (token) {
+    userRepo.deleteSession(token);
+  }
+  res.json({ success: true, message: "Logged out successfully" });
+});
+
+// FORGOT PASSWORD MECHANISM - PASSWORD RESET LINK GENERATION (PART 1 & 8)
+app.post("/api/auth/forgot-password", (req, res) => {
+  const { email } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ error: "Missing email address field." });
+  }
+
+  try {
+    const user = userRepo.findByEmail(email);
+    if (!user) {
+      return res.status(404).json({ error: "If account exists, we will simulate. Wait! No account discovered with this exact email inside our register registry." });
+    }
+
+    const token = userRepo.createResetToken(email);
+    if (!token) {
+      return res.status(500).json({ error: "Failed to generate security reset token." });
+    }
+
+    // Since this is a sandboxed local container, we dynamically return the Reset Verification Link right inside the response,
+    // so the interactive client-side browser modal can catch it and display a fully working simulated "Inbox Email" wrapper to execute the password reset!
+    const protocol = req.secure ? "https" : "http";
+    const resetUrl = `/auth/reset?email=${encodeURIComponent(email)}&token=${token}`;
+
+    res.json({
+      success: true,
+      message: `A simulated verification/reset email has been securely compiled.`,
+      emailSyncBody: {
+        to: email,
+        from: "security@mirrormind.edu",
+        subject: "🔒 Reset Your Student Twin Password [MirrorMind Recovery]",
+        body: `Dear Student,
+
+You have requested a secure link to reset MirrorMind Digital Twin account credentials.
+Please click the recovery validation button below to update your password:
+
+VALIDATION LINK: ${resetUrl} (Valid for 1 hour)
+
+If you are not the initiator of this action, please secure your credentials immediately.`,
+        resetUrl
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// VERIFY RESET AND SUBMIT NEW PASSWORD (PART 1)
+app.post("/api/auth/reset-password", (req, res) => {
+  const { email, token, newPassword } = req.body;
+
+  if (!email || !token || !newPassword) {
+    return res.status(400).json({ error: "Missing required profile reset fields." });
+  }
+
+  try {
+    // Validate Token
+    const isTokenValid = userRepo.validateResetToken(email, token);
+    if (!isTokenValid) {
+      return res.status(400).json({ error: "Security validation token expired, invalid, or already resolved." });
+    }
+
+    // Submit new hashed password
+    const hashed = hashPassword(newPassword);
+    const success = userRepo.resetPassword(email, hashed);
+
+    if (!success) {
+      return res.status(500).json({ error: "Could not apply password changes." });
+    }
+
+    res.json({
+      success: true,
+      message: "Security status updated! Salted password successfully reconstructed. Please log in using your new password."
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // FETCH DB
 app.get("/api/db", (req, res) => {
@@ -905,13 +1408,44 @@ app.post("/api/gemini/student-twin-ask", async (req, res) => {
     };
   });
 
+  // Pull rich historical Student Memory Graph data
+  let graphContextText = "";
+  try {
+    const memoryDB = loadMemoryDatabase();
+    const studentMemories = memoryDB.twinMemories.filter(m => m.studentId === studentId);
+    const studentMissions = memoryDB.lifeMissions.filter(m => m.studentId === studentId);
+    const studentMilestones = memoryDB.missionMilestones.filter(m => m.studentId === studentId);
+    const studentSnapshots = memoryDB.dnaSnapshots.filter(s => s.studentId === studentId);
+    const studentReflections = memoryDB.reflections.filter(r => r.studentId === studentId);
+    const studentAchievements = memoryDB.achievements.filter(a => a.studentId === studentId);
+    const studentInterests = memoryDB.careerInterests.filter(i => i.studentId === studentId);
+    const studentChallengesHistory = memoryDB.challengeHistory.filter(c => c.studentId === studentId);
+    const studentState = getOrCreateStudentState(studentId);
+    const relationshipScore = studentState.relationshipScore;
+
+    graphContextText = `
+HISTORICAL STUDENT MEMORY & TIMELINE DATA from MirrorMind Student Memory Graph:
+- Digital Twin Bonding Relationship Score: ${relationshipScore}%
+- Active Career Interests: ${studentInterests.map(i => `${i.interestName} (Preferred: ${i.isPreferred})`).join(", ")}
+- Active Life Missions templates enrolled: ${JSON.stringify(studentMissions.map(m => ({ name: m.name, targetIdentity: m.targetIdentity, status: m.status })))}
+- Mission Milestones Progress Detail (checked indicates complete milestones): ${JSON.stringify(studentMilestones.map(m => ({ milestone: m.milestoneText, completed: m.isCompleted })))}
+- Week-by-Week DNA Snapshots Archive (historic snapshots timeline for tracing growth over weeks): ${JSON.stringify(studentSnapshots)}
+- Long-Term Memories (Manual updates, cognitive logs, and system audits): ${JSON.stringify(studentMemories.map(m => ({ topic: m.topic, text: m.text, type: m.type })))}
+- Evening Concepts & Socratic Reflections logged: ${JSON.stringify(studentReflections.map(r => ({ concept: r.conceptLearned, analysisText: r.analysis, date: r.timestamp })))}
+- Unlocked Badges/Achievements: ${JSON.stringify(studentAchievements.map(a => ({ name: a.name, description: a.description })))}
+- Personal Challenges streaks: ${JSON.stringify(studentChallengesHistory.map(ch => ({ challengeId: ch.challengeId, streak: ch.currentStreak, longestStreak: ch.longestStreak, status: ch.status })))}
+`;
+  } catch (memError) {
+    console.error("Failed to append Memory Graph details to prompt", memError);
+  }
+
   try {
     const client = getGeminiClient();
     const systemPrompt = `You are MirrorMind AI, the official Student Digital Twin cognitive interface.
 You act as a world-class academic advisor, counselor, coach, and predictor of student outcomes.
-You are responding to a question about the following student's full 5D DNA Mapping.
+You are responding to a question about the following student's full 5D DNA Mapping AND historical student memory graph.
 
-STUDENT PROFILE DATA:
+STUDENT PROFILE DATA (CURRENT DATA):
 - Name: ${student.name}
 - Department/Semester: ${student.department} / ${student.semester}
 - GPA Trend: ${JSON.stringify(student.academic.gpaTrends)} (Current Cumulative: ${student.academic.currentGPA})
@@ -928,11 +1462,12 @@ STUDENT PROFILE DATA:
 - Active Challenges Trackers: ${JSON.stringify(matchedChallenges)}
 - Engagement Stats: Hours logged: ${student.digital.learningActivityHours}h, Engagement level: ${student.digital.contentEngagementScore}/100, Streak: ${student.digital.streakDays} days.
 
-When providing your advisor analysis:
-1. Always base predictions directly on their numbers (e.g., if attendance is declining or low, warn about dropout/academic risk).
-2. Suggest targeted, highly actionable academic interventions.
-3. Recommend career pathways matching their Career DNA.
-4. Keep the response in clean Markdown with clear headings and bullet lists. Make sure the tone is academic, professional, and empathetic. Avoid fluffy intros. Address the user directly as a counselor or mentor.`;
+${graphContextText}
+
+When providing your advisor analysis/dialogue response:
+1. Base all memory queries directly on their numbers and timeline data. If they ask about improvements or growth, reference historical DNA snapshots to show exact differences (e.g., comparing old snapshot metrics like Attendance 81.2% to current metrics of ${student.behavioral.attendancePercentage}%, or Technical DNA, or GPA trends).
+2. If the user asks general questions or about weakness, look into "Weaknesses", "Long-Term Memories", "Reflections" and "Mission Milestones Progress" to identify specific cognitive bottlenecks.
+3. Keep the response in highly formatted Markdown with clear headings and bullet lists. Keep the tone academic, professional, empathetic, and encouraging. Address the user directly as their Digital Twin. Make them feel like you truly remember their journey, noting the exact milestones they've checked and the concepts they've logged!`;
 
     const response = await client.models.generateContent({
       model: "gemini-3.5-flash",

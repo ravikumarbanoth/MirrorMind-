@@ -70,6 +70,7 @@ import GamificationEngine from "./components/GamificationEngine";
 import ViralShareCards from "./components/ViralShareCards";
 import StudentMindStudioExpanded from "./components/StudentMindStudioExpanded";
 import CareerDNACenter from "./components/CareerDNACenter";
+import MyAccountCabinet from "./components/MyAccountCabinet";
 
 export default function App() {
   // Database States
@@ -80,6 +81,51 @@ export default function App() {
   const [currentRole, setCurrentRole] = useState<UserRole>(UserRole.STUDENT);
   const [selectedStudentId, setSelectedStudentId] = useState<string>("std-maya-patel");
   
+  // --- Persistent Auth & Account States (PART 1, 2, 3, 6, 8, 9) ---
+  const [token, setToken] = useState<string | null>(localStorage.getItem("mirrorMindToken"));
+  const [sessionUser, setSessionUser] = useState<{ userId: string; email: string; avatarUrl: string } | null>(null);
+  const [sessionProfile, setSessionProfile] = useState<{
+    profileId: string;
+    userId: string;
+    fullName: string;
+    college: string;
+    course: string;
+    branch: string;
+    semester: string;
+    careerGoal: string;
+    currentIdentity: string;
+    futureIdentity: string;
+    mirrorMindId: string;
+    twinCreatedDate: string;
+  } | null>(null);
+
+  // Authentication overlays & portals
+  const [showAuthOverlay, setShowAuthOverlay] = useState(false);
+  const [authView, setAuthView] = useState<"login" | "register" | "forgot" | "reset">("login");
+  
+  // Auth Form Input bindings
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authConfirmPassword, setAuthConfirmPassword] = useState("");
+  const [authFullName, setAuthFullName] = useState("");
+  const [authCollege, setAuthCollege] = useState("");
+  const [authCourse, setAuthCourse] = useState("");
+  const [authBranch, setAuthBranch] = useState("");
+  const [authSemester, setAuthSemester] = useState("");
+  const [authCareerGoal, setAuthCareerGoal] = useState("");
+  const [authRememberMe, setAuthRememberMe] = useState(true);
+
+  // Recovery token variables
+  const [recoveryTokenField, setRecoveryTokenField] = useState("");
+  const [recoveryEmailField, setRecoveryEmailField] = useState("");
+  const [simulatedEmailSync, setSimulatedEmailSync] = useState<{
+    to: string;
+    from: string;
+    subject: string;
+    body: string;
+    resetUrl: string;
+  } | null>(null);
+
   // Custom states
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -97,6 +143,7 @@ export default function App() {
     | "dna"
     | "challenges"
     | "career"
+    | "account"
   >("twin-home");
 
   const [showEnterpriseRoles, setShowEnterpriseRoles] = useState(false);
@@ -164,10 +211,16 @@ export default function App() {
   const [synchronizingVW, setSynchronizingVW] = useState<string | null>(null);
 
   // Initial Fetch database state
-  const loadDatabase = async () => {
+  const loadDatabase = async (currentToken?: string | null) => {
     try {
       setLoadingDb(true);
-      const res = await fetch("/api/db");
+      const activeToken = currentToken !== undefined ? currentToken : token;
+      const headers: Record<string, string> = {};
+      if (activeToken) {
+        headers["Authorization"] = `Bearer ${activeToken}`;
+      }
+      
+      const res = await fetch("/api/db", { headers });
       if (!res.ok) throw new Error("Failed to sync backend state");
       const data = await res.json();
       setDb(data);
@@ -185,8 +238,43 @@ export default function App() {
     }
   };
 
+  // Keep Session validated with server (PART 8 & 9)
   useEffect(() => {
-    loadDatabase();
+    const verifySession = async () => {
+      if (token) {
+        try {
+          const res = await fetch(`/api/auth/session`, {
+            headers: { "Authorization": `Bearer ${token}` }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setSessionUser(data.user);
+            setSessionProfile(data.profile);
+            if (data.studentRecord) {
+              setSelectedStudentId(data.studentRecord.studentId);
+            }
+            await loadDatabase(token);
+          } else {
+            // Token expired or invalid
+            localStorage.removeItem("mirrorMindToken");
+            setToken(null);
+            setSessionUser(null);
+            setSessionProfile(null);
+            await loadDatabase(null);
+          }
+        } catch (err) {
+          // Network offline, don't force log out yet to support seamless offline state
+        }
+      } else {
+        setSessionUser(null);
+        setSessionProfile(null);
+      }
+    };
+    verifySession();
+  }, [token]);
+
+  useEffect(() => {
+    loadDatabase(token);
   }, []);
 
   // Handle Switch User Mode
@@ -602,25 +690,86 @@ Classroom attendance for this student is currently at sub-optimal margins. We pr
         </div>
 
         {/* PROFILE IDENTIFICATION BANNER */}
-        <div className="p-5 bg-slate-50 border-b border-slate-100">
-          <div className="flex items-center gap-3">
-            {student ? (
-              <>
-                <img
-                  src={student.avatarUrl}
-                  alt={student.name}
-                  className="w-11 h-11 rounded-full object-cover ring-2 ring-blue-500/20"
-                />
-                <div className="overflow-hidden">
-                  <p className="text-sm font-semibold text-slate-800 truncate leading-tight">{student.name}</p>
-                  <p className="text-xs text-[#2563EB] font-mono mt-0.5">{student.semester} • CS Twin</p>
+        <div className="p-5 bg-slate-50 border-b border-slate-100 flex flex-col gap-2.5">
+          <div className="flex items-center gap-3 justify-between">
+            <div className="flex items-center gap-3 overflow-hidden">
+              {student ? (
+                <>
+                  <img
+                    src={student.avatarUrl}
+                    alt={student.name}
+                    className="w-11 h-11 rounded-full object-cover ring-2 ring-blue-500/20"
+                  />
+                  <div className="overflow-hidden">
+                    <p className="text-sm font-semibold text-slate-800 truncate leading-tight">{student.name}</p>
+                    <p className="text-xs text-[#2563EB] font-serif tracking-wide mt-0.5 font-mono">
+                      {sessionProfile ? sessionProfile.mirrorMindId : "Guest Profile"}
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center gap-2 text-slate-400 text-sm">
+                  <Loader2 className="w-4 h-4 animate-spin text-[#2563EB]" />
+                  <span>Synchronizing...</span>
                 </div>
-              </>
+              )}
+            </div>
+            
+            {student && (
+              <button
+                onClick={() => setStudentTab("account")}
+                className={`p-1.5 rounded-lg hover:bg-slate-200/60 transition ${
+                  studentTab === "account" ? "text-blue-600 bg-blue-50" : "text-slate-400"
+                }`}
+                title="Account Status"
+              >
+                <User className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Secure Login Status Bar */}
+          <div className="flex items-center justify-between text-[10px] mt-1 border-t border-slate-100/80 pt-2 font-mono">
+            {sessionUser ? (
+              <span className="flex items-center gap-1 text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full">
+                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
+                SYNC ACTIVE
+              </span>
             ) : (
-              <div className="flex items-center gap-2 text-slate-400 text-sm">
-                <Loader2 className="w-4 h-4 animate-spin text-[#2563EB]" />
-                <span>Synchronizing profile...</span>
-              </div>
+              <span className="flex items-center gap-1 text-amber-500 font-bold bg-amber-50 px-2 py-0.5 rounded-full">
+                <span className="w-1.5 h-1.5 bg-amber-400 rounded-full"></span>
+                GUEST MODE
+              </span>
+            )}
+            
+            {!sessionUser ? (
+              <button
+                onClick={() => {
+                  setAuthView("login");
+                  setShowAuthOverlay(true);
+                }}
+                className="text-blue-600 font-bold hover:underline text-[10px]"
+              >
+                Sign In
+              </button>
+            ) : (
+              <button
+                onClick={async () => {
+                  await fetch("/api/auth/logout", {
+                    method: "POST",
+                    headers: token ? { "Authorization": `Bearer ${token}` } : {}
+                  });
+                  localStorage.removeItem("mirrorMindToken");
+                  setToken(null);
+                  setSessionUser(null);
+                  setSessionProfile(null);
+                  setSuccessMsg("Logged out successfully.");
+                  loadDatabase(null);
+                }}
+                className="text-slate-400 hover:text-red-500 hover:underline text-[10px]"
+              >
+                Sign Out
+              </button>
             )}
           </div>
         </div>

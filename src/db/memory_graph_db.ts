@@ -1,11 +1,67 @@
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 import { StudentDNAProfile } from "../types";
 
 // Define the absolute path for persistent storage
 const DB_FILE_PATH = path.join(process.cwd(), "memory_graph_database.json");
 
-// ------------------- RELATIONAL SCHEMAS (THE 10 TABLES) -------------------
+// ------------------- SECURITY & CRYPTO HELPERS -------------------
+export function hashPassword(password: string): string {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = crypto.scryptSync(password, salt, 64).toString("hex");
+  return `${salt}:${hash}`;
+}
+
+export function comparePassword(password: string, storedHash: string): boolean {
+  try {
+    const [salt, hash] = storedHash.split(":");
+    const computedHash = crypto.scryptSync(password, salt, 64).toString("hex");
+    return hash === computedHash;
+  } catch (err) {
+    return false;
+  }
+}
+
+// ------------------- RELATIONAL SCHEMAS (THE 10 TABLES + AUTH SCHEMAS) -------------------
+
+// Auth Schema 1: Users Table
+export interface UserRecord {
+  userId: string;
+  email: string;
+  passwordHash: string;
+  avatarUrl: string;
+  createdAt: string;
+  lastLogin: string;
+  authProvider: "local" | "google";
+  status: "Active" | "Pending" | "Disabled";
+}
+
+// Auth Schema 2: Student Profiles Table
+export interface StudentProfileRecord {
+  profileId: string;
+  userId: string;
+  fullName: string;
+  college: string;
+  course: string;
+  branch: string;
+  semester: string;
+  careerGoal: string;
+  currentIdentity: string;
+  futureIdentity: string;
+  mirrorMindId: string; // e.g., MM-2026-000124
+  twinCreatedDate: string;
+}
+
+// Auth Schema 3: User Sessions Table
+export interface UserSessionRecord {
+  sessionId: string;
+  userId: string;
+  token: string;
+  expiresAt: string;
+  deviceInfo: string;
+  ipAddress: string;
+}
 
 // 1. Students table (using official detailed multi-dimensional DNA type directly)
 export type StudentRecord = StudentDNAProfile;
@@ -123,6 +179,11 @@ export interface StudentMemoryGraphDB {
   achievements: AchievementRecord[];
   careerInterests: CareerInterestRecord[];
   challengeHistory: ChallengeHistoryRecord[];
+  // New auth tables
+  users?: UserRecord[];
+  studentProfiles?: StudentProfileRecord[];
+  userSessions?: UserSessionRecord[];
+  resetPasswordTokens?: { email: string; token: string; expiresAt: string }[];
 }
 
 // ------------------- INITIAL SEEDS VALUES -------------------
@@ -530,8 +591,42 @@ function createDefaultDatabase(): StudentMemoryGraphDB {
     reflections: initialReflections,
     achievements: initialAchievements,
     careerInterests: initialCareerInterests,
-    challengeHistory: initialChallengeHistory
+    challengeHistory: initialChallengeHistory,
+    users: [],
+    studentProfiles: [],
+    userSessions: [],
+    resetPasswordTokens: []
   };
+
+  const defaultPasswordHash = hashPassword("Password123");
+
+  seedStudents.forEach((student, idx) => {
+    db.users!.push({
+      userId: student.studentId,
+      email: student.email,
+      passwordHash: defaultPasswordHash,
+      avatarUrl: student.avatarUrl,
+      createdAt: new Date().toISOString(),
+      lastLogin: new Date().toISOString(),
+      authProvider: "local",
+      status: "Active"
+    });
+
+    db.studentProfiles!.push({
+      profileId: `prof-${student.studentId}`,
+      userId: student.studentId,
+      fullName: student.name,
+      college: "MirrorMind Institute of AI & Technology",
+      course: "Bachelor of Technology (B.Tech)",
+      branch: student.department,
+      semester: student.semester,
+      careerGoal: student.career.careerInterests[0] || "AI Engineer",
+      currentIdentity: "Committed Engineering Student",
+      futureIdentity: student.career.preferredDomains[0] || "AI Researcher",
+      mirrorMindId: `MM-2026-000${101 + idx}`,
+      twinCreatedDate: new Date(Date.now() - 112 * 24 * 60 * 60 * 1000).toISOString() // 112 Days ago
+    });
+  });
 
   // Build active missions and milestones for all seed students
   seedStudents.forEach(student => {
@@ -920,4 +1015,275 @@ export function resetStudentMemoryState(studentId: string): void {
   }
 
   saveMemoryDatabase(db);
+}
+
+// ------------------- REPOSITORY PATTERN ABSTRACTION (PART 10) -------------------
+
+export interface IUserRepository {
+  findByEmail(email: string): UserRecord | null;
+  findById(userId: string): UserRecord | null;
+  createUser(user: Omit<UserRecord, "userId" | "createdAt" | "status">): UserRecord;
+  createStudentProfile(profile: Omit<StudentProfileRecord, "profileId" | "twinCreatedDate">): StudentProfileRecord;
+  getStudentProfile(userId: string): StudentProfileRecord | null;
+  createSession(userId: string, deviceInfo: string, ipAddress: string): UserSessionRecord;
+  validateSession(token: string): UserSessionRecord | null;
+  deleteSession(token: string): void;
+  updateLastLogin(userId: string): void;
+  createResetToken(email: string): string | null;
+  validateResetToken(email: string, token: string): boolean;
+  resetPassword(email: string, newHash: string): boolean;
+}
+
+export interface IMemoryRepository {
+  getMemories(studentId: string): TwinMemoryRecord[];
+  addMemory(studentId: string, topic: string, text: string, type: TwinMemoryRecord["type"]): TwinMemoryRecord;
+  getReflections(studentId: string): ReflectionRecord[];
+  addReflection(studentId: string, conceptLearned: string, analysis: string): ReflectionRecord;
+  getAchievements(studentId: string): AchievementRecord[];
+  addAchievement(studentId: string, name: string, description: string, icon: string, color: string): AchievementRecord;
+  getDNASnapshots(studentId: string): DNASnapshotRecord[];
+}
+
+export interface IConversationRepository {
+  getConversations(studentId: string): ConversationRecord[];
+  logConversation(studentId: string, query: string, reply: string): ConversationRecord;
+}
+
+export interface IMissionRepository {
+  getActiveMission(studentId: string): LifeMissionRecord | null;
+  selectMission(studentId: string, templateId: string): void;
+  toggleMilestone(studentId: string, templateId: string, milestoneText: string): boolean;
+  getMilestones(studentId: string, missionId: string): MissionMilestoneRecord[];
+}
+
+// Concrete repository using persistent JSON memory_graph_database
+export class UserRepository implements IUserRepository {
+  findByEmail(email: string): UserRecord | null {
+    const db = loadMemoryDatabase();
+    if (!db.users) db.users = [];
+    return db.users.find(u => u.email.toLowerCase() === email.toLowerCase()) || null;
+  }
+
+  findById(userId: string): UserRecord | null {
+    const db = loadMemoryDatabase();
+    if (!db.users) db.users = [];
+    return db.users.find(u => u.userId === userId) || null;
+  }
+
+  createUser(user: Omit<UserRecord, "userId" | "createdAt" | "status">): UserRecord {
+    const db = loadMemoryDatabase();
+    if (!db.users) db.users = [];
+    const newRecord: UserRecord = {
+      ...user,
+      userId: `usr-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      createdAt: new Date().toISOString(),
+      status: "Active"
+    };
+    db.users.push(newRecord);
+    saveMemoryDatabase(db);
+    return newRecord;
+  }
+
+  createStudentProfile(profile: Omit<StudentProfileRecord, "profileId" | "twinCreatedDate">): StudentProfileRecord {
+    const db = loadMemoryDatabase();
+    if (!db.studentProfiles) db.studentProfiles = [];
+    
+    // Auto-generate MirrorMind ID
+    const year = new Date().getFullYear();
+    const count = (db.studentProfiles.length + 124).toString().padStart(6, "0");
+    const mirrorMindId = `MM-${year}-${count}`;
+
+    const newRecord: StudentProfileRecord = {
+      ...profile,
+      profileId: `prof-${Date.now()}`,
+      mirrorMindId,
+      twinCreatedDate: new Date().toISOString()
+    };
+    db.studentProfiles.push(newRecord);
+    saveMemoryDatabase(db);
+    return newRecord;
+  }
+
+  getStudentProfile(userId: string): StudentProfileRecord | null {
+    const db = loadMemoryDatabase();
+    if (!db.studentProfiles) db.studentProfiles = [];
+    return db.studentProfiles.find(p => p.userId === userId) || null;
+  }
+
+  createSession(userId: string, deviceInfo: string, ipAddress: string): UserSessionRecord {
+    const db = loadMemoryDatabase();
+    if (!db.userSessions) db.userSessions = [];
+    
+    const token = crypto.randomBytes(32).toString("hex");
+    const newSession: UserSessionRecord = {
+      sessionId: `sess-${Date.now()}`,
+      userId,
+      token,
+      expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(), // 14 days expiration
+      deviceInfo,
+      ipAddress
+    };
+    db.userSessions.push(newSession);
+    saveMemoryDatabase(db);
+    return newSession;
+  }
+
+  validateSession(token: string): UserSessionRecord | null {
+    const db = loadMemoryDatabase();
+    if (!db.userSessions) return null;
+    const session = db.userSessions.find(s => s.token === token);
+    if (!session) return null;
+    
+    if (new Date(session.expiresAt) < new Date()) {
+      // Session expired, remove it
+      db.userSessions = db.userSessions.filter(s => s.token !== token);
+      saveMemoryDatabase(db);
+      return null;
+    }
+    return session;
+  }
+
+  deleteSession(token: string): void {
+    const db = loadMemoryDatabase();
+    if (!db.userSessions) return;
+    db.userSessions = db.userSessions.filter(s => s.token !== token);
+    saveMemoryDatabase(db);
+  }
+
+  updateLastLogin(userId: string): void {
+    const db = loadMemoryDatabase();
+    if (!db.users) return;
+    const user = db.users.find(u => u.userId === userId);
+    if (user) {
+      user.lastLogin = new Date().toISOString();
+      saveMemoryDatabase(db);
+    }
+  }
+
+  createResetToken(email: string): string | null {
+    const db = loadMemoryDatabase();
+    if (!db.resetPasswordTokens) db.resetPasswordTokens = [];
+    
+    const user = this.findByEmail(email);
+    if (!user) return null;
+
+    const token = crypto.randomBytes(16).toString("hex");
+    // Expire token in 1 hour
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    
+    db.resetPasswordTokens.push({ email, token, expiresAt });
+    saveMemoryDatabase(db);
+    return token;
+  }
+
+  validateResetToken(email: string, token: string): boolean {
+    const db = loadMemoryDatabase();
+    if (!db.resetPasswordTokens) return false;
+    const index = db.resetPasswordTokens.findIndex(
+      t => t.email.toLowerCase() === email.toLowerCase() && t.token === token
+    );
+    if (index === -1) return false;
+
+    const tok = db.resetPasswordTokens[index];
+    if (new Date(tok.expiresAt) < new Date()) {
+      // Expired token
+      db.resetPasswordTokens.splice(index, 1);
+      saveMemoryDatabase(db);
+      return false;
+    }
+    return true;
+  }
+
+  resetPassword(email: string, newHash: string): boolean {
+    const db = loadMemoryDatabase();
+    if (!db.users) return false;
+    const user = db.users.find(u => u.email.toLowerCase() === email.toLowerCase());
+    if (user) {
+      user.passwordHash = newHash;
+      // Clean up passwords tokens too
+      if (db.resetPasswordTokens) {
+        db.resetPasswordTokens = db.resetPasswordTokens.filter(t => t.email.toLowerCase() !== email.toLowerCase());
+      }
+      saveMemoryDatabase(db);
+      return true;
+    }
+    return false;
+  }
+}
+
+export class MemoryRepository implements IMemoryRepository {
+  getMemories(studentId: string): TwinMemoryRecord[] {
+    const db = loadMemoryDatabase();
+    return db.twinMemories.filter(m => m.studentId === studentId);
+  }
+
+  addMemory(studentId: string, topic: string, text: string, type: TwinMemoryRecord["type"]): TwinMemoryRecord {
+    return addStudentMemory(studentId, topic, text, type);
+  }
+
+  getReflections(studentId: string): ReflectionRecord[] {
+    const db = loadMemoryDatabase();
+    return db.reflections.filter(r => r.studentId === studentId);
+  }
+
+  addReflection(studentId: string, conceptLearned: string, analysis: string): ReflectionRecord {
+    return submitEveningReflection(studentId, conceptLearned, analysis);
+  }
+
+  getAchievements(studentId: string): AchievementRecord[] {
+    const db = loadMemoryDatabase();
+    return db.achievements.filter(a => a.studentId === studentId);
+  }
+
+  addAchievement(studentId: string, name: string, description: string, icon: string, color: string): AchievementRecord {
+    const db = loadMemoryDatabase();
+    const newAchievement: AchievementRecord = {
+      id: `ac-${Date.now()}`,
+      studentId,
+      name,
+      description,
+      icon,
+      color,
+      unlockedAt: new Date().toISOString()
+    };
+    db.achievements.unshift(newAchievement);
+    saveMemoryDatabase(db);
+    return newAchievement;
+  }
+
+  getDNASnapshots(studentId: string): DNASnapshotRecord[] {
+    const db = loadMemoryDatabase();
+    return db.dnaSnapshots.filter(s => s.studentId === studentId);
+  }
+}
+
+export class ConversationRepository implements IConversationRepository {
+  getConversations(studentId: string): ConversationRecord[] {
+    const db = loadMemoryDatabase();
+    return db.conversations.filter(c => c.studentId === studentId);
+  }
+
+  logConversation(studentId: string, query: string, reply: string): ConversationRecord {
+    return logConversation(studentId, query, reply);
+  }
+}
+
+export class MissionRepository implements IMissionRepository {
+  getActiveMission(studentId: string): LifeMissionRecord | null {
+    const db = loadMemoryDatabase();
+    return db.lifeMissions.find(lm => lm.studentId === studentId && lm.status === "Active") || null;
+  }
+
+  selectMission(studentId: string, templateId: string): void {
+    selectStudentMission(studentId, templateId);
+  }
+
+  toggleMilestone(studentId: string, templateId: string, milestoneText: string): boolean {
+    return toggleStudentMilestone(studentId, templateId, milestoneText);
+  }
+
+  getMilestones(studentId: string, missionId: string): MissionMilestoneRecord[] {
+    const db = loadMemoryDatabase();
+    return db.missionMilestones.filter(m => m.studentId === studentId && m.missionId === missionId);
+  }
 }

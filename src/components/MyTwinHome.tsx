@@ -72,10 +72,11 @@ export default function MyTwinHome({
   ]);
 
   const QUICK_QUESTIONS = [
+    "What have I improved most since joining MirrorMind?",
+    "What were my biggest weaknesses six months ago?",
     "Why are my marks dropping?",
     "Which skill should I learn next?",
     "Can I become a Data Analyst?",
-    "Can I crack TGPSC Group-2?",
     "What challenge should I take this week?",
     "Why is my employability score low?"
   ];
@@ -797,6 +798,31 @@ export default function MyTwinHome({
 // COGNITIVE OFFLINE FALLBACK ENGINE
 function getFallbackTwinAnswer(query: string, student: StudentDNAProfile): string {
   const lowercase = query.toLowerCase();
+  
+  if (lowercase.includes("improve") || lowercase.includes("joining") || lowercase.includes("most")) {
+    return `### 🧬 Digital Twin Memory Recall: Growth Timeline
+Analyzing your week-by-week historical DNA snapshots since joining MirrorMind...
+
+**Key Evolution Milestones:**
+* **Technical DNA & Commitment:** Your logged learning activity stands at **${student.digital.learningActivityHours} hours** with a **${student.digital.streakDays}-day active streak**. Compared to your baseline snapshot, this is a **14% increase in consistency**!
+* **Active Mission Progress:** You started your journey under the *Software Engineer Foundations* track, and have successfully crossed key milestones like building dynamic dashboards.
+* **Attendance Stabilization:** While class attendance dipped to **${student.behavioral.attendancePercentage}%**, your daily ritual check-ins show you are actively building discipline.
+
+**Primary Growth Catalyst:** Socratic Reflection logs. You have logged rigorous concepts like 'Database Joins' and 'Query Optimization' inside StudentMind Studio. This has boosted your conceptual mastery by **18%**!`;
+  }
+
+  if (lowercase.includes("weaknesses") || lowercase.includes("six months ago") || lowercase.includes("six months")) {
+    return `### 🧬 Digital Twin Memory Recall: Bottleneck Retrospective
+Reviewing historical snapshots and older records in your Student Memory Graph from the beginning of your journey:
+
+**Historical Weaknesses & Obstacles:**
+1. **Rote Learning Habits:** Your early learning profiles showed low visual-somatic scores, meaning you spent too much time reading and not enough time practicing in the coding arena.
+2. **Engagement Fluctuations:** Six months ago, your active learning hours were under **5 hours/week**. Today, you have scaled this to **${student.digital.learningActivityHours} hours** in total!
+3. **Internal Course Marks:** Early grades in *Data Structures* and *Database Systems* were below average.
+
+**Current Diagnostics:**
+We have successfully flipped theoretical reading into custom somatic practice (current somatic score is **85%**). Your biggest remaining leverage point is **Attendance** (currently **${student.behavioral.attendancePercentage}%**), which we must stabilize above 90% to maximize placement success.`;
+  }
   
   if (lowercase.includes("marks") || lowercase.includes("drop") || lowercase.includes("grades")) {
     return `### 📉 Marks & Attendance Behavioral Audit
