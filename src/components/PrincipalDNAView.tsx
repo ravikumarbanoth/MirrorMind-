@@ -26,6 +26,7 @@ import {
   BookOpen
 } from "lucide-react";
 import { AppDatabase, StudentDNAProfile, UserRole, ActiveIntervention } from "../types";
+import { getLecturerGenerateCached, saveLecturerGenerateCache, getFallbackLecturerAnswer, parseGeminiError } from "./geminiCache";
 
 const DEPARTMENT_HEALTH_STATIC = [
   { id: "cse", name: "Computer Science & Engineering", healthScore: 84, activeStudents: 180, attendance: "87.5%", placementIndex: 82, color: "border-indigo-100 bg-indigo-50/20 text-indigo-700" },
@@ -96,7 +97,18 @@ export default function PrincipalDNAView({
 
   // Trigger Advisor Report with Live Gemini API
   const handleGenerateAdvisory = async () => {
-    if (!advisoryTopic.trim()) return;
+    const cleanTopic = advisoryTopic.trim();
+    if (!cleanTopic) return;
+    if (generatingAdvisory) return; // Prevent duplicate requests (Only one Gemini request executes per user action)
+
+    // Check cached memo briefs first
+    const cachedMemo = getLecturerGenerateCached(cleanTopic, "Institutional Policy Memo");
+    if (cachedMemo) {
+      setAdvisoryOutput(`${cachedMemo}\n\n*(📋 Retrieved instantly from Institutional Advisory Memoization Cache)*`);
+      setSuccessMsg("Institutional cognitive policy briefing loaded instantly from cache.");
+      return;
+    }
+
     try {
       setGeneratingAdvisory(true);
       setAdvisoryOutput("");
@@ -105,12 +117,20 @@ export default function PrincipalDNAView({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           requestType: "Institutional Policy Memo",
-          topic: advisoryTopic,
+          topic: cleanTopic,
           context: `Current aggregate college stats: GPA: ${aggregateGpa}, Attendance: ${averageAttendance}%, Total Students: ${db.students.length}. High risk dropout count: ${highRiskStudents.length} profiles. Macro Institutional DNA: ${macroInstitutionalScore}/100.`
         })
       });
+
+      if (!res.ok) {
+        throw new Error(`Server returned status ${res.status}`);
+      }
+
       const data = await res.json();
       if (data.success) {
+        // Save memo to cache
+        saveLecturerGenerateCache(cleanTopic, "Institutional Policy Memo", data.output);
+
         setAdvisoryOutput(data.output);
         setSuccessMsg("Institutional cognitive policy briefing generated successfully.");
       } else {
@@ -118,7 +138,10 @@ export default function PrincipalDNAView({
       }
     } catch (err: any) {
       console.error(err);
-      setAdvisoryOutput(`### MirrorMind Institutional Direct Memo: ${advisoryTopic}\n\n* **Academic Strategy Summary:** College GPA threshold averages suggest computer department segments require enhanced sandbox labs.\n* **Drop-out Preventative Rules:** Automate 14-day zero-attendance challenge streaks for any profile trending < 80% attendance to secure placement ratios.\n* **Next Step Guidelines:** Reallocate 10% class schedules to personalized StudentMind Studio synthesizers.`);
+      const errInfo = parseGeminiError(err);
+      const fallbackReport = getFallbackLecturerAnswer(cleanTopic, "Institutional Policy Memo");
+      
+      setAdvisoryOutput(`### ⚠️ Institutional Policy Memo Compilation Delayed\n\n*Diagnostic Code:* ${errInfo.message}\n\n${fallbackReport}`);
     } finally {
       setGeneratingAdvisory(false);
     }

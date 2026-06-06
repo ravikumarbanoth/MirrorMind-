@@ -18,6 +18,7 @@ import {
   Info
 } from "lucide-react";
 import { StudentDNAProfile } from "../types";
+import { getStudioGenerateCached, saveStudioGenerateCache, parseGeminiError } from "./geminiCache";
 
 interface StudentMindStudioExpandedProps {
   student: StudentDNAProfile;
@@ -48,6 +49,25 @@ export default function StudentMindStudioExpanded({
       setErrorMsg("Please provide some source content or text to synthesize.");
       return;
     }
+    if (generating) return; // Prevent duplicate requests (Only one Gemini request executes per user action)
+
+    const cleanContent = sourceContent.trim();
+
+    // 1. Check cached study packs first (Dashboard insights/packs are cached!)
+    const cachedPack = getStudioGenerateCached(cleanContent);
+    if (cachedPack) {
+      setErrorMsg(null);
+      setActivePack(cachedPack);
+      setAnsweredQuestions({});
+      setCheckedAnswers({});
+      setActiveTab("notes");
+      // Show instant caching notify
+      const successTip = "💡 Study package loaded instantly from local cognitive cache!";
+      setErrorMsg(successTip);
+      setTimeout(() => setErrorMsg(null), 4000);
+      return;
+    }
+
     try {
       setGenerating(true);
       setErrorMsg(null);
@@ -58,7 +78,7 @@ export default function StudentMindStudioExpanded({
         body: JSON.stringify({
           sourceType,
           sourceName: sourceName || `Uploaded ${sourceType.toUpperCase()}`,
-          sourceContent,
+          sourceContent: cleanContent,
           studentId: student.studentId,
           customPrompt
         })
@@ -69,6 +89,9 @@ export default function StudentMindStudioExpanded({
       }
       
       if (data.success && data.pack) {
+        // Save to cache
+        saveStudioGenerateCache(cleanContent, data.pack);
+
         setActivePack(data.pack);
         setAnsweredQuestions({});
         setCheckedAnswers({});
@@ -78,10 +101,11 @@ export default function StudentMindStudioExpanded({
       }
     } catch (err: any) {
       console.error(err);
-      setErrorMsg("StudentMind Studio Generation was interrupted. Triggering cognitive local synthesis...");
+      const errInfo = parseGeminiError(err);
+      setErrorMsg(`${errInfo.message}. Synthesizing cognitive offline study guidelines...`);
       
       // Dynamic offline mock fallback synthesis for full fidelity
-      const mockResult = getFallbackStudioResult(sourceType, sourceName, sourceContent);
+      const mockResult = getFallbackStudioResult(sourceType, sourceName, cleanContent);
       setActivePack(mockResult);
       setAnsweredQuestions({});
       setCheckedAnswers({});

@@ -16,6 +16,7 @@ import {
   Activity
 } from "lucide-react";
 import { StudentDNAProfile } from "../types";
+import { simulateFutureSelfLocally } from "./geminiCache";
 
 interface FutureSelfSimulatorProps {
   student: StudentDNAProfile;
@@ -41,26 +42,26 @@ export default function FutureSelfSimulator({ student }: FutureSelfSimulatorProp
 
   // Run simulation
   const handleSimulate = async () => {
+    if (calculating) return; // Prevent duplicate requests (Only one Gemini request executes per user action)
     try {
       setCalculating(true);
-      const res = await fetch("/api/gemini/student-twin-simulate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          studentId: student.studentId,
-          targetAttendance,
-          completedChallenges,
-          studyHours
-        })
-      });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
 
-      // Enhance simulated outcome metrics using other sliders as well on client-side
+      // Perform simulation locally using high-fidelity modeling
+      const outcome = simulateFutureSelfLocally(
+        student,
+        targetAttendance,
+        completedChallenges,
+        studyHours,
+        commsSkill,
+        techSkill,
+        sleepDiscipline
+      );
+
+      // Fine-tune outcomes using supplementary behavioral sliders
       const modifier = (commsSkill - 70) * 0.15 + (techSkill - 70) * 0.2 + (sleepDiscipline - 60) * 0.1;
-      const computedGpa = Math.min(4.0, Math.round((data.prediction.gpa + (modifier * 0.012)) * 100) / 100);
-      const computedEmp = Math.min(100, Math.round(data.prediction.employability + modifier * 0.8));
-      const computedPlacement = Math.min(100, Math.round(data.prediction.readiness + modifier * 0.9));
+      const computedGpa = Math.min(4.0, Math.round((outcome.gpa + (modifier * 0.012)) * 100) / 100);
+      const computedEmp = Math.min(100, Math.round(outcome.employability + modifier * 0.8));
+      const computedPlacement = Math.min(100, Math.round(outcome.readiness + modifier * 0.9));
       const computedExam = Math.min(100, Math.round(62 + (commsSkill * 0.1) + (techSkill * 0.12) + (targetAttendance * 0.1)));
       const computedCareer = Math.min(100, Math.round(70 + (techSkill * 0.18) + (completedChallenges * 0.5)));
 
@@ -69,7 +70,9 @@ export default function FutureSelfSimulator({ student }: FutureSelfSimulatorProp
       setSimulatedPlacement(computedPlacement);
       setSimulatedExamReadiness(computedExam);
       setSimulatedCareerScore(computedCareer);
-      setSimulationNarrative(data.prediction.narrative);
+      
+      // Append a local simulation header tag to narrative
+      setSimulationNarrative(`${outcome.narrative}\n\n*(⚡ Timeline shift calculated locally by Digital Twin Core)*`);
 
     } catch (err: any) {
       console.warn("Simulator calculation default triggered:", err);

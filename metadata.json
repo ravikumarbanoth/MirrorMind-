@@ -1,6 +1,6 @@
 {
   "name": "MirrorMind",
-  "description": "AI-Powered Student Digital Twin and Personalized Learning Platform with StudentMind Studio.",
+  "description": "MirrorMind V4 - Student AI Twin Evolution: Daily personal growth, habit tracking, competitive exam DNA, and shareable growth cards.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

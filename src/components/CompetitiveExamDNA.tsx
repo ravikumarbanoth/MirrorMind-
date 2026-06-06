@@ -68,25 +68,113 @@ export default function CompetitiveExamDNA() {
         }
       ]
     },
-    gate: {
-      id: "gate",
-      name: "GATE (Graduate Aptitude Test in Eng.)",
-      readiness: 76,
-      weakAreas: ["Compiler Design", "Discrete Mathematics"],
-      recommended: "5-Day Automata & Compiler Sandbox",
+    appsc: {
+      id: "appsc",
+      name: "APPSC (Andhra Pradesh Public Service)",
+      readiness: 58,
+      weakAreas: ["Andhra History", "Sustainable Development"],
+      recommended: "AP Bifurcation Act deep-dive and geography notes",
       dimensions: {
-        "Current Affairs": 60,
-        "Reasoning Aptitude": 84,
-        "Quantitative Aptitude": 82,
-        "Communication": 70,
-        "Domain Knowledge: Discrete Math": 62
+        "Current Affairs": 54,
+        "Reasoning Aptitude": 66,
+        "Quantitative Aptitude": 60,
+        "Communication": 72,
+        "Domain Knowledge: AP History": 48
       } as any,
       mcqs: [
         {
-          q: "What is the time complexity to find the shortest path between all pairs of vertices in an arbitrary graph using Floyd-Warshall Algorithm?",
-          options: ["O(V³)", "O(V² log V)", "O(E * V)", "O(V + E)"],
-          answer: "O(V³)",
-          explanation: "Floyd-Warshall relies on dynamic programming loops through intermediate nodes, completing in cubic O(V³) time."
+          q: "In which year was the Andhra Pradesh Reorganisation Act passed by the Indian Parliament?",
+          options: ["2012", "2013", "2014", "2015"],
+          answer: "2014",
+          explanation: "The Andhra Pradesh Reorganisation Act was passed in 2014, bifurcation of Andhra Pradesh and Telangana."
+        }
+      ]
+    },
+    ssc: {
+      id: "ssc",
+      name: "SSC CGL (Staff Selection Commission)",
+      readiness: 71,
+      weakAreas: ["English Comprehension", "General Awareness"],
+      recommended: "Daily Vocab Mastery & General Awareness Flashcards",
+      dimensions: {
+        "Current Affairs": 62,
+        "Reasoning Aptitude": 78,
+        "Quantitative Aptitude": 75,
+        "Communication": 68,
+        "Domain Knowledge: General Awareness": 55
+      } as any,
+      mcqs: [
+        {
+          q: "Who was the first Governor-General of Bengal under the Regulating Act of 1773?",
+          options: ["Warren Hastings", "Lord Cornwallis", "Lord William Bentinck", "Robert Clive"],
+          answer: "Warren Hastings",
+          explanation: "Warren Hastings became the first Governor-General of Bengal following the enactment of the British Regulating Act of 1773."
+        }
+      ]
+    },
+    banking: {
+      id: "banking",
+      name: "Banking (IBPS / SBI PO)",
+      readiness: 65,
+      weakAreas: ["Data Interpretation", "Financial Awareness"],
+      recommended: "30-Day Quantitative & Bank Interest Formulas Practice",
+      dimensions: {
+        "Current Affairs": 70,
+        "Reasoning Aptitude": 74,
+        "Quantitative Aptitude": 54,
+        "Communication": 80,
+        "Domain Knowledge: Financial Markets": 58
+      } as any,
+      mcqs: [
+        {
+          q: "What is the primary rate at which the Reserve Bank of India (RBI) lends money to commercial banks in the event of any shortfall of funds?",
+          options: ["Repo Rate", "Reverse Repo Rate", "Statutory Liquidity Ratio", "Cash Reserve Ratio"],
+          answer: "Repo Rate",
+          explanation: "Repo Rate (Repurchase Option Rate) is the rate at which the central bank lends money to commercial banks against government securities."
+        }
+      ]
+    },
+    railways: {
+      id: "railways",
+      name: "Railways RRB NTPC",
+      readiness: 74,
+      weakAreas: ["General Science", "Static GK"],
+      recommended: "High-Frequency Physics and Railway History Syllabus",
+      dimensions: {
+        "Current Affairs": 65,
+        "Reasoning Aptitude": 80,
+        "Quantitative Aptitude": 78,
+        "Communication": 65,
+        "Domain Knowledge: Railway GK": 52
+      } as any,
+      mcqs: [
+        {
+          q: "Which state of India has the longest railway route kilometer network?",
+          options: ["Uttar Pradesh", "Maharashtra", "Rajasthan", "West Bengal"],
+          answer: "Uttar Pradesh",
+          explanation: "Uttar Pradesh has the largest share of Indian Railways network route km because of its massive size and flat plain topography."
+        }
+      ]
+    },
+    police: {
+      id: "police",
+      name: "Police SI & Constable",
+      readiness: 68,
+      weakAreas: ["Physical Awareness", "Indian Penal Code / Law"],
+      recommended: "Indian Constitution fundamental rights and police duties sprint",
+      dimensions: {
+        "Current Affairs": 58,
+        "Reasoning Aptitude": 70,
+        "Quantitative Aptitude": 66,
+        "Communication": 72,
+        "Domain Knowledge: Penal Law": 50
+      } as any,
+      mcqs: [
+        {
+          q: "The concept of 'Public Interest Litigation' (PIL) in India was pioneered by which famous justice?",
+          options: ["Justice P.N. Bhagwati", "Justice H.J. Kania", "Justice Y.V. Chandrachud", "Justice Ranjan Gogoi"],
+          answer: "Justice P.N. Bhagwati",
+          explanation: "Justice P.N. Bhagwati was the prime pioneer who established Public Interest Litigation in the Supreme Court during the early 1980s."
         }
       ]
     },
@@ -109,6 +197,50 @@ export default function CompetitiveExamDNA() {
           options: ["Kesavananda Bharati v. State of Kerala", "Golaknath v. State of Punjab", "Minerva Mills v. Union of India", "Maneka Gandhi v. Union of India"],
           answer: "Kesavananda Bharati v. State of Kerala",
           explanation: "The historic 1973 Kesavananda Bharati judgment established that while parliament can amend the constitution, it cannot violate its basic structure."
+        }
+      ]
+    },
+    gate: {
+      id: "gate",
+      name: "GATE (Graduate Aptitude Test in Eng.)",
+      readiness: 76,
+      weakAreas: ["Compiler Design", "Discrete Mathematics"],
+      recommended: "5-Day Automata & Compiler Sandbox",
+      dimensions: {
+        "Current Affairs": 60,
+        "Reasoning Aptitude": 84,
+        "Quantitative Aptitude": 82,
+        "Communication": 70,
+        "Domain Knowledge: Discrete Math": 62
+      } as any,
+      mcqs: [
+        {
+          q: "What is the time complexity to find the shortest path between all pairs of vertices in an arbitrary graph using Floyd-Warshall Algorithm?",
+          options: ["O(V³)", "O(V² log V)", "O(E * V)", "O(V + E)"],
+          answer: "O(V³)",
+          explanation: "Floyd-Warshall relies on dynamic programming loops through intermediate nodes, completing in cubic O(V³) time."
+        }
+      ]
+    },
+    cat: {
+      id: "cat",
+      name: "CAT (Common Admission Test for MBA)",
+      readiness: 56,
+      weakAreas: ["Data Interpretation & LR", "Verbal Ability"],
+      recommended: "15-Day Logic Puzzles & Reading Comprehension speed reviews",
+      dimensions: {
+        "Current Affairs": 50,
+        "Reasoning Aptitude": 64,
+        "Quantitative Aptitude": 58,
+        "Communication": 72,
+        "Domain Knowledge: Verbal Ability": 45
+      } as any,
+      mcqs: [
+        {
+          q: "Three numbers are in the ratio of 3:4:5 and their L.C.M. is 2400. What is their H.C.F.?",
+          options: ["40", "80", "120", "200"],
+          answer: "40",
+          explanation: "Let numbers be 3x, 4x, 5x. Since 3, 4, 5 are coprime, their LCM is 3 * 4 * 5 * x = 60x. Given 60x = 2400, so x = 40. Their HCF is x, which is 40."
         }
       ]
     }

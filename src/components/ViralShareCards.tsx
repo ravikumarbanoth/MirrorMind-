@@ -39,52 +39,46 @@ export default function ViralShareCards({ student }: ViralShareCardsProps) {
     "dna-growth": {
       id: "dna-growth",
       label: "📈 DNA Growth Card",
-      title: "DIGITAL TWIN COGNITIVE CLIMB",
+      title: "DNA GROWTH CARD",
       gradient: "from-[#2563EB] via-indigo-600 to-indigo-800",
-      metricLabel: "COMPOSITE COGNITIVE DNA",
-      metricValue: "84%",
+      metricLabel: "COMPOSITE CLIMB",
+      metricValue: "Level 12",
       badgeText: "STABLE VELOCITY",
-      highlights: ["Technical DNA: +3% This Week", "Academic GPA Peak: 3.56", "Active 14-Day Diligence Streak"]
+      highlights: ["Technical DNA: +12%", "Communication DNA: +8%", "Career Readiness: +10%"]
     },
-    "skill-improvement": {
-      id: "skill-improvement",
-      label: "⚡ Skill Improvement",
-      title: "CERTIFIED PRACTICAL SKILL MATRIX",
-      gradient: "from-[#10B981] via-emerald-600 to-teal-800",
-      metricLabel: "MASTERED SKILLS",
-      metricValue: `${student.career.skillsMastered.length} Tools`,
-      badgeText: "MARKET COMPETENT",
-      highlights: [`Focus: ${student.career.skillsMastered.slice(0, 3).join(", ")}`, "94% Congruence Rating on PyTorch", "Onboarding Ramp-Up Buffer: 4 weeks"]
+    "employability": {
+      id: "employability",
+      label: "💼 Employability Card",
+      title: "EMPLOYABILITY CARD",
+      gradient: "from-[#8B5CF6] via-violet-600 to-purple-800",
+      metricLabel: "EMPLOYABILITY GROWTH",
+      metricValue: "71% → 79%",
+      badgeText: "RECRUITER MATURE",
+      highlights: ["+8% Placement Confidence Rise", "Mock Interview Assessment Passed", "Bilingual presentation certified"]
     },
     "challenge-complete": {
       id: "challenge-complete",
-      label: "🏆 Challenge Arena Badge",
-      title: "ARENA CHAMPION CREDENTIALS",
+      label: "🏆 Challenge Completion Card",
+      title: "CHALLENGE COMPLETION CARD",
       gradient: "from-[#F59E0B] via-amber-600 to-orange-700",
-      metricLabel: "CHALLENGES ACCRETED",
-      metricValue: `${student.digital.challengesCompletedCount} Badges`,
-      badgeText: "CHAMPIONSHIP LEVEL",
-      highlights: ["SQL Masterclass: Unlocked", "Speaking Challenge completed", "Total cumulative XP: +2,420"]
+      metricLabel: "RESOLUTION RECORD",
+      metricValue: "30-Day Coding Complete",
+      badgeText: "CHAMPIONSHIP STYLE",
+      highlights: ["30-Day coding challenge completed", "SQL Masterclass Badge Unlocked", "Earned +5,420 Cumulative XP"]
     },
     "future-self": {
       id: "future-self",
-      label: "🔮 Future Self Projection",
-      title: "TEMPORAL TIMELINE SIMULATION",
+      label: "🔮 Future Self Card",
+      title: "FUTURE SELF CARD",
       gradient: "from-[#EC4899] via-pink-600 to-rose-700",
-      metricLabel: "PREDICTED PLACEMENT JOB CHANCE",
-      metricValue: "92%",
-      badgeText: "TIER-1 ARCHITECT PROJECTION",
-      highlights: ["Attendance Modifier at: 92%", "Study intensity: 16 h/week", "Simulated GPA Surge: 3.84"]
-    },
-    "career-readiness": {
-      id: "career-readiness",
-      label: "💼 Career Placement Card",
-      title: "CORPORATE PLACEMENT CONFIDENCE INDEX",
-      gradient: "from-[#8B5CF6] via-violet-600 to-purple-800",
-      metricLabel: "EMPLOYABILITY INDEX",
-      metricValue: "88%",
-      badgeText: "RECRUITER MATURE",
-      highlights: ["Domain alignment: Deep Learning", "Bilingual presentation certified", "Mock Interview Assessment passed"]
+      metricLabel: "TEMPORAL PROJECTION",
+      metricValue: "Current You vs Future You",
+      badgeText: "TIER-1 ARCHITECT TYPE",
+      highlights: [
+        "Current Maya: Employability 71%, Comm 58%, Tech 76%",
+        "Future Maya: Employability 89%, Comm 82%, Tech 92%",
+        "Required: Complete SQL Challenge, 30-Day Streak, Comm Sprint"
+      ]
     }
   };
 

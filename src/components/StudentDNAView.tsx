@@ -34,6 +34,7 @@ import {
   TrendingDown
 } from "lucide-react";
 import { UserRole, AppDatabase, StudentDNAProfile, Challenge } from "../types";
+import { getTwinAskCached, saveTwinAskCache, simulateFutureSelfLocally, parseGeminiError } from "./geminiCache";
 
 // Setup stable DNA score vectors for pre-seeded students across Semesters (Feature 2: DNA Timeline)
 const STUDENT_SEMESTER_HISTORY: Record<string, Record<string, {
@@ -238,8 +239,24 @@ How would you like me to align your routines today?`,
   // Handle Ask Twin AI
   const handleAskTwin = async (e?: React.FormEvent, customQ?: string) => {
     if (e) e.preventDefault();
-    const activeQ = customQ || query;
-    if (!activeQ.trim()) return;
+    const activeQ = (customQ || query).trim();
+    if (!activeQ) return;
+    if (askingTwin) return; // Prevent duplicate requests (Only one Gemini request executes per user action)
+
+    // 1. Check AI Twin response memoization cache first
+    const cachedReply = getTwinAskCached(student.studentId, activeQ);
+    if (cachedReply) {
+      setQuery("");
+      setChatHistory(prev => [
+        ...prev,
+        {
+          query: activeQ,
+          reply: `${cachedReply}\n\n*(💡 Digitally synchronized instantly from Digital Twin Memoization Cache)*`,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }
+      ]);
+      return;
+    }
 
     try {
       setAskingTwin(true);
@@ -252,8 +269,16 @@ How would you like me to align your routines today?`,
           question: activeQ
         })
       });
+
+      if (!res.ok) {
+        throw new Error(`Server returned status ${res.status}`);
+      }
+
       const data = await res.json();
       if (data.error) throw new Error(data.error);
+
+      // Save to memoization cache
+      saveTwinAskCache(student.studentId, activeQ, data.reply);
 
       setChatHistory(prev => [
         ...prev,
@@ -261,9 +286,17 @@ How would you like me to align your routines today?`,
       ]);
     } catch (err: any) {
       console.error(err);
+      const errInfo = parseGeminiError(err);
+      
+      // Local fallback counseling response
+      const fallbackReply = `### 🧬 Digital Twin Calibration Report
+Your Digital Twin has diagnosed your course issues based on classroom attendance metrics. By restoring classroom attendance above **90%**, we predict your GPA raises by **0.25 points** and placement readiness gains **18%**. Focus on hands-on sessions this week!
+
+*Diagnostic Alert: ${errInfo.message}*`;
+
       setChatHistory(prev => [
         ...prev,
-        { query: activeQ, reply: "⚠️ The digital twin mesh is calibrating, but I estimate that improving attendance to >90% immediately raises simulated career placement options by 21%. Let's secure our focus routines today!", timestamp: "Now" }
+        { query: activeQ, reply: fallbackReply, timestamp: "Now" }
       ]);
     } finally {
       setAskingTwin(false);
@@ -272,24 +305,25 @@ How would you like me to align your routines today?`,
 
   // Handle Future Self Simulation
   const handleSimulate = async () => {
+    if (simulating) return; // Prevent duplicate requests (Only one Gemini request executes per user action)
+    
     try {
       setSimulating(true);
-      const res = await fetch("/api/gemini/student-twin-simulate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          studentId: student.studentId,
-          targetAttendance: simAttendance,
-          completedChallenges: simChallenges,
-          studyHours: simStudyHours
-        })
-      });
-      const data = await res.json();
-      if (data.success && data.prediction) {
-        setSimulationResult(data.prediction);
-      }
+      // Run Future Self Simulation LOCALLY (whenever possible!)
+      // This is instant, zero-cost, responsive, and works completely offline/without Gemini API
+      const result = simulateFutureSelfLocally(
+        student,
+        simAttendance,
+        simChallenges,
+        simStudyHours,
+        74, // commsSkill default fallback
+        78, // techSkill default fallback
+        68  // sleepDiscipline default fallback
+      );
+      
+      setSimulationResult(result);
     } catch (err) {
-      console.error(err);
+      console.error("Local simulation error:", err);
     } finally {
       setSimulating(false);
     }

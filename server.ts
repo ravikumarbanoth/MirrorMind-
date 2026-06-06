@@ -4,6 +4,18 @@ import dotenv from "dotenv";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import { UserRole, AppDatabase, StudentDNAProfile, Challenge, StudentChallengeProgress, GeneratedStudyPack, ValueWeaveInsight, LeaderboardUser, ActiveIntervention } from "./src/types";
+import {
+  loadMemoryDatabase,
+  saveMemoryDatabase,
+  getOrCreateStudentState,
+  addStudentMemory,
+  toggleStudentMilestone,
+  selectStudentMission,
+  checkInDailyRitual,
+  submitEveningReflection,
+  logConversation,
+  resetStudentMemoryState
+} from "./src/db/memory_graph_db";
 
 dotenv.config();
 
@@ -383,7 +395,9 @@ const seedInterventions: ActiveIntervention[] = [
 
 // Complete application database
 const dbState: AppDatabase = {
-  students: seedStudents,
+  get students() {
+    return loadMemoryDatabase().students;
+  },
   challenges: seedChallenges,
   studentChallenges: seedStudentChallenges,
   leaderboard: seedLeaderboard,
@@ -404,6 +418,77 @@ const dbState: AppDatabase = {
 // FETCH DB
 app.get("/api/db", (req, res) => {
   res.json(dbState);
+});
+
+// --- STUDENT MEMORY GRAPH ENDPOINTS ---
+
+app.get("/api/student-memory-graph", (req, res) => {
+  const { studentId } = req.query;
+  if (!studentId || typeof studentId !== "string") {
+    return res.status(400).json({ error: "Missing string studentId parameter" });
+  }
+  const status = getOrCreateStudentState(studentId);
+  res.json(status);
+});
+
+app.post("/api/student-memory-graph/brain-dump", (req, res) => {
+  const { studentId, topic, text } = req.body;
+  if (!studentId || !topic || !text) {
+    return res.status(400).json({ error: "Missing studentId, topic, or text" });
+  }
+  addStudentMemory(studentId, topic, text, "manual");
+  const status = getOrCreateStudentState(studentId);
+  res.json(status);
+});
+
+app.post("/api/student-memory-graph/toggle-milestone", (req, res) => {
+  const { studentId, templateId, milestoneText } = req.body;
+  if (!studentId || !templateId || !milestoneText) {
+    return res.status(400).json({ error: "Missing studentId, templateId, or milestoneText" });
+  }
+  toggleStudentMilestone(studentId, templateId, milestoneText);
+  const status = getOrCreateStudentState(studentId);
+  res.json(status);
+});
+
+app.post("/api/student-memory-graph/perform-checkin", (req, res) => {
+  const { studentId, period } = req.body;
+  if (!studentId || (period !== "morning" && period !== "midday")) {
+    return res.status(400).json({ error: "Missing studentId, or invalid period (morning/midday)" });
+  }
+  checkInDailyRitual(studentId, period);
+  const status = getOrCreateStudentState(studentId);
+  res.json(status);
+});
+
+app.post("/api/student-memory-graph/submit-reflection", (req, res) => {
+  const { studentId, conceptLearned, analysis } = req.body;
+  if (!studentId || !conceptLearned || !analysis) {
+    return res.status(400).json({ error: "Missing studentId, conceptLearned, or analysis" });
+  }
+  submitEveningReflection(studentId, conceptLearned, analysis);
+  const status = getOrCreateStudentState(studentId);
+  res.json(status);
+});
+
+app.post("/api/student-memory-graph/change-mission", (req, res) => {
+  const { studentId, templateId } = req.body;
+  if (!studentId || !templateId) {
+    return res.status(400).json({ error: "Missing studentId, or templateId" });
+  }
+  selectStudentMission(studentId, templateId);
+  const status = getOrCreateStudentState(studentId);
+  res.json(status);
+});
+
+app.post("/api/student-memory-graph/reset", (req, res) => {
+  const { studentId } = req.body;
+  if (!studentId) {
+    return res.status(400).json({ error: "Missing studentId" });
+  }
+  resetStudentMemoryState(studentId);
+  const status = getOrCreateStudentState(studentId);
+  res.json(status);
 });
 
 // CHOOSE Mock USER MODE
@@ -858,7 +943,9 @@ When providing your advisor analysis:
       }
     });
 
-    res.json({ reply: response.text || "No response received" });
+    const replyText = response.text || "No response received";
+    logConversation(studentId, question, replyText);
+    res.json({ reply: replyText });
   } catch (error: any) {
     console.error("Gemini digital twin prediction failed:", error);
     res.status(500).json({ error: error.message || "An error occurred with Gemini Twin interface." });

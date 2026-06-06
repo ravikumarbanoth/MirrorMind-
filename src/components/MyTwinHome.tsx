@@ -16,9 +16,12 @@ import {
   Star,
   Activity,
   Heart,
-  CalendarCheck
+  CalendarCheck,
+  Check
 } from "lucide-react";
 import { StudentDNAProfile, AppDatabase } from "../types";
+import { getTwinAskCached, saveTwinAskCache, parseGeminiError } from "./geminiCache";
+import TwinOSDashboard from "./TwinOSDashboard";
 
 interface MyTwinHomeProps {
   student: StudentDNAProfile;
@@ -39,12 +42,24 @@ export default function MyTwinHome({
 }: MyTwinHomeProps) {
   const [twinQuestion, setTwinQuestion] = useState("");
   const [askingTwin, setAskingTwin] = useState(false);
+  const [subTab, setSubTab] = useState<"twin-os" | "mentor-chat" | "daily-ritual">("twin-os");
   const [customMode, setCustomMode] = useState<{
     mode: string;
     desc: string;
     confidence: string;
     momentum: string;
   } | null>(null);
+
+  // Priority 4 Interactive Coaching States
+  const [coachingPeriod, setCoachingPeriod] = useState<"morning" | "afternoon" | "evening" | "night">("morning");
+  const [coachingReflection, setCoachingReflection] = useState("");
+  const [reflectionAnswer, setReflectionAnswer] = useState<string | null>(null);
+  const [checkedInPeriods, setCheckedInPeriods] = useState<Record<string, boolean>>({
+    morning: false,
+    afternoon: false,
+    evening: false,
+    night: false
+  });
 
   const [twinChatHistory, setTwinChatHistory] = useState<
     { query: string; reply: string; timestamp: string }[]
@@ -67,6 +82,25 @@ export default function MyTwinHome({
 
   const handleAskTwin = async (questionText: string) => {
     if (!questionText.trim()) return;
+    if (askingTwin) return; // Prevent duplicate requests (Only one Gemini request executes per user action)
+
+    const cleanQuestion = questionText.trim();
+
+    // 1. Check AI Twin response memoization cache first
+    const cachedReply = getTwinAskCached(student.studentId, cleanQuestion);
+    if (cachedReply) {
+      setTwinChatHistory(prev => [
+        ...prev,
+        {
+          query: cleanQuestion,
+          reply: `${cachedReply}\n\n*(💡 Digitally synchronized instantly from Digital Twin Memoization Cache)*`,
+          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        }
+      ]);
+      setTwinQuestion("");
+      return;
+    }
+
     try {
       setAskingTwin(true);
       const res = await fetch("/api/gemini/student-twin-ask", {
@@ -74,30 +108,40 @@ export default function MyTwinHome({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           studentId: student.studentId,
-          question: questionText
+          question: cleanQuestion
         })
       });
+
+      if (!res.ok) {
+        throw new Error(`Server returned status ${res.status}`);
+      }
+
       const data = await res.json();
       if (data.error) throw new Error(data.error);
+
+      // Save to memoization cache
+      saveTwinAskCache(student.studentId, cleanQuestion, data.reply);
 
       setTwinChatHistory(prev => [
         ...prev,
         {
-          query: questionText,
+          query: cleanQuestion,
           reply: data.reply,
           timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
         }
       ]);
       setTwinQuestion("");
     } catch (err: any) {
-      // Elegant offline fallback in case the API limit is hit or API key is absent
+      // Elegant offline fallback in case of rate limits, 503s, or key issues
       console.warn("API Error, triggering cognitive local twin response:", err);
-      const mockReply = getFallbackTwinAnswer(questionText, student);
+      const errInfo = parseGeminiError(err);
+      const mockReply = getFallbackTwinAnswer(cleanQuestion, student);
+      
       setTwinChatHistory(prev => [
         ...prev,
         {
-          query: questionText,
-          reply: mockReply,
+          query: cleanQuestion,
+          reply: `${errInfo.message}\n\n${mockReply}`,
           timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
         }
       ]);
@@ -305,8 +349,276 @@ export default function MyTwinHome({
 
       </div>
 
-      {/* CENTERPIECE: PRIMARY AI TWIN MENTOR CHAT BOX */}
-      <div className="bg-white border border-slate-150 rounded-3xl p-6 shadow-sm space-y-4" id="twin-chat-block">
+      {/* COMPREHENSIVE INTEGRATED TAB SWITCHER COCKPIT */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-slate-200 pb-4 gap-4 animate-fadeIn">
+        <div className="flex flex-wrap gap-2 p-1.5 bg-slate-100 rounded-2xl border border-slate-200">
+          {[
+            { id: "twin-os", label: "🧠 Twin Growth OS", desc: "Life Missions & Memory Engine", icon: Brain },
+            { id: "mentor-chat", label: "💬 Consult AI Twin", desc: "Socratic Chat & Recommendations", icon: MessageSquare },
+            { id: "daily-ritual", label: "📅 Daily Rituals", desc: "Check-ins & Streaks Logs", icon: CalendarCheck }
+          ].map(tb => {
+            const Icon = tb.icon;
+            const isActive = subTab === tb.id;
+            return (
+              <button
+                key={tb.id}
+                onClick={() => setSubTab(tb.id as any)}
+                className={`px-4.5 py-3 rounded-xl text-left flex items-center gap-3 transition-all cursor-pointer ${
+                  isActive
+                    ? "bg-slate-900 text-white shadow-lg shadow-slate-200 scale-[1.01]"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-white/50"
+                }`}
+              >
+                <Icon className={`w-4 h-4 ${isActive ? "text-indigo-400" : "text-slate-500"}`} />
+                <div>
+                  <span className="block leading-none text-xs font-black">{tb.label}</span>
+                  <span className={`block font-mono text-[9px] mt-1 tracking-tight ${isActive ? "text-indigo-300" : "text-indigo-400"}`}>{tb.desc}</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        
+        <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-250/60 shadow-3xs rounded-xl text-[10px] font-mono font-bold text-slate-700">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span>Twin OS v2.1 Sync Active</span>
+        </div>
+      </div>
+
+      {subTab === "twin-os" && (
+        <TwinOSDashboard
+          student={student}
+          db={db}
+          onNavigateToTab={onNavigateToTab}
+        />
+      )}
+
+      {subTab === "daily-ritual" && (
+        <div className="bg-white border border-slate-150 rounded-3xl p-6 shadow-sm space-y-6" id="daily-coaching-panel">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-3">
+          <div>
+            <span className="text-[9px] uppercase tracking-widest font-black text-rose-600 font-mono flex items-center gap-1.5">
+              <CalendarCheck className="w-3.5 h-3.5 text-rose-500" />
+              <span>Priority 4: Companion daily routine engine</span>
+            </span>
+            <h3 className="font-extrabold text-slate-800 font-display text-base mt-1">
+              Your Daily Twin Coaching Loop
+            </h3>
+            <p className="text-xs text-slate-500">
+              Complete these prompt cards daily to synchronise your habits with your Digital Twin's predicted evolution milestones.
+            </p>
+          </div>
+          
+          {/* Active indicator */}
+          <div className="flex items-center gap-1 bg-rose-50 text-rose-700 text-[10px] font-mono font-bold px-3 py-1 rounded-full border border-rose-100">
+            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping"></span>
+            <span>Streak: {student.digital.streakDays} Days</span>
+          </div>
+        </div>
+
+        {/* 4 PERIODS SEGMENTED HEADER ROADMAP */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+          {[
+            { id: "morning", title: "Morning Focus", desc: "6:00 AM - 12:00 PM", icon: Zap, color: "text-amber-500 bg-amber-50 border-amber-100" },
+            { id: "afternoon", title: "Afternoon Check", desc: "12:00 PM - 5:00 PM", icon: Activity, color: "text-blue-500 bg-blue-50 border-blue-100" },
+            { id: "evening", title: "Evening Reflect", desc: "5:00 PM - 9:00 PM", icon: Brain, color: "text-[#14B8A6] bg-teal-50 border-teal-100" },
+            { id: "night", title: "Night Feedback", desc: "9:00 PM - 6:00 AM", icon: Award, color: "text-indigo-500 bg-indigo-50 border-indigo-100" }
+          ].map((period) => {
+            const Icon = period.icon;
+            const isActive = coachingPeriod === period.id;
+            const isCompleted = checkedInPeriods[period.id];
+
+            return (
+              <button
+                key={period.id}
+                type="button"
+                onClick={() => setCoachingPeriod(period.id as any)}
+                className={`p-3 rounded-2xl border text-left transition-all ${
+                  isActive
+                    ? "bg-slate-900 border-slate-900 text-white shadow-md shadow-slate-100 scale-[1.02]"
+                    : "bg-white border-slate-200 text-slate-650 hover:bg-slate-50"
+                }`}
+              >
+                <div className="flex justify-between items-start">
+                  <div className={`p-1.5 rounded-lg border ${isActive ? "bg-white/10 border-white/20" : period.color} shrink-0`}>
+                    <Icon className="w-4 h-4" />
+                  </div>
+                  {isCompleted && (
+                    <span className="text-[8px] font-mono bg-emerald-500 text-white font-extrabold px-1.5 py-0.5 rounded uppercase">
+                      ✓ Done
+                    </span>
+                  )}
+                </div>
+                <h4 className="text-xs font-black mt-2.5 font-display">{period.title}</h4>
+                <p className={`text-[10px] mt-0.5 font-mono ${isActive ? "text-slate-300" : "text-slate-400"}`}>
+                  {period.desc}
+                </p>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* DETAILS OF SELECTED COACHING SLOT */}
+        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4 animate-fadeIn">
+          {coachingPeriod === "morning" && (
+            <div className="space-y-3">
+              <span className="text-[9px] uppercase font-bold tracking-widest text-amber-600 font-mono block">Morning Active Directive:</span>
+              <h4 className="text-base font-black text-slate-800">
+                Today's Core Focus: "Spend 20 minutes practicing SQL Joins."
+              </h4>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Your Digital Twin identified structured database query planning as your highest margin for GPA growth. By practicing SQL Joins today, you reinforce practical syllabus goals.
+              </p>
+
+              <div className="pt-2 flex flex-wrap items-center gap-3">
+                {!checkedInPeriods.morning ? (
+                  <button
+                    onClick={() => {
+                      setCheckedInPeriods(prev => ({ ...prev, morning: true }));
+                    }}
+                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-750 text-white font-black text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5"
+                  >
+                    <Zap className="w-3.5 h-3.5 animate-bounce text-amber-300" />
+                    <span>Initialize Morning Focus (+50 XP)</span>
+                  </button>
+                ) : (
+                  <div className="p-3 bg-green-50 border border-green-200 text-green-800 rounded-xl text-xs font-black flex items-center gap-2">
+                    <Check className="w-4 h-4 text-green-600" />
+                    <span>Focus Initialized successfully. Claimed +50 XP! Keep crushing goals today.</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {coachingPeriod === "afternoon" && (
+            <div className="space-y-3">
+              <span className="text-[9px] uppercase font-bold tracking-widest text-blue-600 font-mono block">Mid-Day Progress Audit:</span>
+              <h4 className="text-base font-black text-slate-800">
+                Consistency checkpoint: "You completed {checkedInPeriods.afternoon ? "80%" : "60%"} of today's learning goals."
+              </h4>
+              
+              {/* Dynamic progress bar animation */}
+              <div className="space-y-1">
+                <div className="flex justify-between items-center text-[10px] font-mono font-bold text-slate-450">
+                  <span>Daily Progress Status</span>
+                  <span>{checkedInPeriods.afternoon ? "80%" : "60%"}</span>
+                </div>
+                <div className="bg-slate-200 h-2.5 rounded-full overflow-hidden border border-slate-200">
+                  <div
+                    className="bg-gradient-to-r from-blue-500 to-[#14B8A6] h-full rounded-full transition-all duration-500"
+                    style={{ width: checkedInPeriods.afternoon ? "80%" : "60%" }}
+                  ></div>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-500 leading-relaxed">
+                You studied 5 SQL challenge segments. Dedicate 15 more minutes to wrap the day's targeted DBMS concepts and keep consistency levels at max!
+              </p>
+
+              <div className="pt-2">
+                {!checkedInPeriods.afternoon ? (
+                  <button
+                    onClick={() => {
+                      setCheckedInPeriods(prev => ({ ...prev, afternoon: true }));
+                    }}
+                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-lg transition-all"
+                  >
+                    Report Progress Boost (+100 XP)
+                  </button>
+                ) : (
+                  <div className="p-3 bg-green-50 border border-green-100 text-green-800 rounded-xl text-xs font-black flex items-center gap-2 max-w-fit">
+                    <Check className="w-4 h-4 text-green-600" />
+                    <span>Progress verified at 80%! Added +100 XP to your evolution progress pool.</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {coachingPeriod === "evening" && (
+            <div className="space-y-3">
+              <span className="text-[9px] uppercase font-bold tracking-widest text-[#14B8A6] font-mono block">Causal Self Reflection:</span>
+              <h4 className="text-base font-black text-slate-800">
+                Daily Learning Sync: "What was the most important concept you learned today?"
+              </h4>
+              <p className="text-xs text-slate-500">
+                Type 1-2 sentences. Reporting your cognitive insights trains your Digital Twin to optimize predicted employability ratings.
+              </p>
+
+              {!reflectionAnswer ? (
+                <div className="space-y-2">
+                  <textarea
+                    rows={2}
+                    value={coachingReflection}
+                    onChange={(e) => setCoachingReflection(e.target.value)}
+                    placeholder="e.g. Mastered nested join query normalization filters up to BCNF..."
+                    className="w-full bg-white border border-slate-200 rounded-xl p-3 text-xs focus:ring-1 focus:ring-[#14B8A6] focus:outline-none text-slate-800"
+                  />
+                  <button
+                    onClick={() => {
+                      if (!coachingReflection.trim()) return;
+                      setCheckedInPeriods(prev => ({ ...prev, evening: true }));
+                      setReflectionAnswer(
+                        `Excellent breakthrough, Maya! Summarising "${coachingReflection}" reinforces active somatic learning by 48%. Securing daily logical reviews trains your database core for higher exams. Streak maintained (+200 XP)`
+                      );
+                    }}
+                    className="px-4 py-2 bg-[#14B8A6] hover:bg-teal-600 text-white font-bold text-xs rounded-lg transition-all"
+                  >
+                    Log Reflection to Twin
+                  </button>
+                </div>
+              ) : (
+                <div className="bg-white p-4 rounded-xl border border-teal-100 shadow-3xs space-y-2 animate-fadeIn">
+                  <div className="flex items-center gap-1.5 text-[10px] text-teal-600 font-extrabold uppercase font-mono">
+                    <Brain className="w-3.5 h-3.5 animate-pulse text-teal-500" />
+                    <span>Somatic reflection Response</span>
+                  </div>
+                  <p className="text-xs text-slate-700 leading-relaxed font-sans font-medium whitespace-pre-line italic">
+                    "{reflectionAnswer}"
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {coachingPeriod === "night" && (
+            <div className="space-y-3">
+              <span className="text-[9px] uppercase font-bold tracking-widest text-indigo-600 font-mono block">End-of-Day Twin Feedback:</span>
+              <h4 className="text-base font-black text-slate-800">
+                Habit Review: "Your study consistency improved today. Keep your streak alive."
+              </h4>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Analyzing nightly parameters. Average focus span holds steady at 48 minutes per session. Keeping up this rhythm for 7 additional days boosts technical exam readiness to +11% higher thresholds.
+              </p>
+
+              <div className="pt-2">
+                {!checkedInPeriods.night ? (
+                  <button
+                    onClick={() => {
+                      setCheckedInPeriods(prev => ({ ...prev, night: true }));
+                    }}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg transition-all"
+                  >
+                    Claim Daily wrap Bonus (+100 XP)
+                  </button>
+                ) : (
+                  <div className="p-3 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-xl text-xs font-black flex items-center gap-2 max-w-fit">
+                    <Check className="w-4 h-4 text-indigo-600" />
+                    <span>Daily bonus claimed! See you tomorrow morning, Maya.</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+      )}
+
+      {subTab === "mentor-chat" && (
+        <>
+          {/* CENTERPIECE: PRIMARY AI TWIN MENTOR CHAT BOX */}
+          <div className="bg-white border border-slate-150 rounded-3xl p-6 shadow-sm space-y-4" id="twin-chat-block">
         <div className="flex justify-between items-start border-b border-slate-100 pb-3">
           <div>
             <span className="text-[9px] uppercase tracking-widest font-black text-indigo-600 font-mono flex items-center gap-1">
@@ -475,6 +787,8 @@ export default function MyTwinHome({
         </div>
 
       </div>
+      </>
+      )}
 
     </div>
   );
